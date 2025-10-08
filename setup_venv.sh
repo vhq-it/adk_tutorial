@@ -4,6 +4,32 @@
 
 set -e  # Exit on any error
 
+# --- Function for error handling ---
+handle_error() {
+  echo "Error: $1"
+  exit 1
+}
+
+# --- Part 1: Set Google Cloud Project ID ---
+PROJECT_FILE="$HOME/project_id.txt"
+echo "--- Setting Google Cloud Project ID File ---"
+
+read -p "Please enter your Google Cloud project ID: " user_project_id
+
+if [[ -z "$user_project_id" ]]; then
+  handle_error "No project ID was entered."
+fi
+
+echo "You entered: $user_project_id"
+echo "$user_project_id" > "$PROJECT_FILE"
+
+if [[ $? -ne 0 ]]; then
+  handle_error "Failed saving your project ID: $user_project_id."
+fi
+echo "Successfully saved project ID."
+
+
+
 echo "🚀 Setting up ADK Agent virtual environment..."
 
 # Check if Python 3 is installed
@@ -48,10 +74,50 @@ pip install --upgrade pip
 echo "📥 Installing dependencies..."
 pip install -r requirements.txt
 
-echo "✅ Setup complete!"
+
+
+echo "--- Setting Google Cloud Environment Variables ---"
+
+# --- Authentication Check ---
+echo "Checking gcloud authentication status..."
+
+if gcloud auth print-access-token > /dev/null 2>&1; then
+  echo "gcloud is authenticated."
+else
+  echo "Error: gcloud is not authenticated."
+  echo "Please log in by running: gcloud auth login"
+  exit 1
+fi
+
+# --- Get Project ID and Create .env file ---
+PROJECT_FILE_PATH=$(eval echo $PROJECT_FILE) # Expand potential ~
+if [ ! -f "$PROJECT_FILE_PATH" ]; then
+  echo "Error: Project file not found at $PROJECT_FILE_PATH"
+  echo "Please run the script again and provide your Google Cloud project ID."
+  exit 1
+fi
+
+PROJECT_ID_FROM_FILE=$(cat "$PROJECT_FILE_PATH")
+echo "Setting gcloud config project to: $PROJECT_ID_FROM_FILE"
+gcloud config set project "$PROJECT_ID_FROM_FILE" --quiet
+
+# Re-confirm the project ID from the config
+PROJECT_ID=$(gcloud config get project)
+REGION="us-central1"
+
+echo "📝 Creating .env file..."
+cat > .env << EOL
+# Environment variables for ADK Agent, created by setup_venv.sh
+GOOGLE_GENAI_USE_VERTEXAI=TRUE
+GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
+GOOGLE_CLOUD_LOCATION=${REGION}
+EOL
+
+echo "✅ Setup complete! A '.env' file has been created with your configuration."
 echo ""
-echo "To activate the virtual environment in the future, run:"
+echo "To activate the virtual environment, run:"
 echo "   source .adk_env/bin/activate"
 echo ""
+echo "Your agent will automatically load the settings from the .env file."
 echo "To deactivate the virtual environment, run:"
 echo "   deactivate"
